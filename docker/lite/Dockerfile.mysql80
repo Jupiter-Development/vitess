@@ -17,7 +17,7 @@
 #       ensure images contain the right binaries.
 
 # Use a temporary layer for the build stage.
-ARG bootstrap_version=5
+ARG bootstrap_version=4
 ARG image="vitess/bootstrap:${bootstrap_version}-mysql80"
 
 FROM "${image}" AS builder
@@ -43,16 +43,38 @@ RUN /vt/dist/install_dependencies.sh mysql80
 RUN groupadd -r vitess && useradd -r -g vitess vitess
 RUN mkdir -p /vt/vtdataroot && chown -R vitess:vitess /vt
 
+COPY docker/local/install_local_dependencies.sh /vt/dist/install_local_dependencies.sh
+USER root
+RUN /vt/dist/install_local_dependencies.sh
+RUN echo "source /vt/local/env.sh" >> /etc/bash.bashrc
+USER vitess
+
 # Set up Vitess environment (just enough to run pre-built Go binaries)
 ENV VTROOT /vt/src/vitess.io/vitess
 ENV VTDATAROOT /vt/vtdataroot
 ENV PATH $VTROOT/bin:$PATH
+ENV PATH="/var/opt/etcd:${PATH}"
 ENV MYSQL_FLAVOR MySQL80
+
+ENV VTROOT /vt/src/vitess.io/vitess
+ENV VTDATAROOT /vt/vtdataroot
+ENV PATH $VTROOT/bin:$PATH
+
 
 # Copy artifacts from builder layer.
 COPY --from=builder --chown=vitess:vitess /vt/install /vt
+COPY --from=builder --chown=vitess:vitess /vt/src /vt/src
 COPY --from=builder --chown=vitess:vitess /vt/src/vitess.io/vitess/web/orchestrator /vt/web/orchestrator
+
 
 # Create mount point for actual data (e.g. MySQL data dir)
 VOLUME /vt/vtdataroot
 USER vitess
+
+RUN mkdir /vt/local
+COPY examples/local /vt/local
+
+RUN mkdir /vt/common
+COPY examples/common /vt/common
+
+CMD cd /vt/local && ./101_initial_cluster.sh && /bin/bash
